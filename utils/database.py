@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import sqlite3
 
 import pandas as pd
@@ -82,6 +82,19 @@ def ensure_database() -> None:
                 )
                 """
             )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
 
 
 def table_is_empty(table_name: str) -> bool:

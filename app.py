@@ -1,4 +1,4 @@
-"""
+﻿"""
 Coronados - Sistema de Gestion
 Cierre de caja, gastos detallados, personal y panel de control.
 """
@@ -8,6 +8,15 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
 
+from services.auth import (
+    ROLE_ADMIN_OWNER,
+    ROLE_ADMIN,
+    ROLE_OWNER,
+    ROLE_CAJA,
+    ROLE_MANAGER,
+    authenticate_user,
+    ensure_default_users,
+)
 from services.business import (
     _fecha_str_a_date,
     calcular_total_turno,
@@ -15,6 +24,7 @@ from services.business import (
     ingresos_cierres,
 )
 from services.catalogs import CATEGORIAS_GASTO, lista_empleados, lista_proveedores
+from utils.database import ensure_database
 from utils.storage import (
     cargar_cierres,
     cargar_gastos,
@@ -39,6 +49,23 @@ st.set_page_config(
 NOMBRE_RESTAURANTE = "Coronados"
 METODOS_PAGO = ["Efectivo", "Posnet", "Transferencia"]
 
+ALL_PAGES = [
+    "Cierre de Caja",
+    "Administrar Cierres",
+    "Gastos Detallados",
+    "Gestión de Personal",
+    "Pedidos Ya",
+    "Transferencias Alias",
+    "Administración Global",
+    "Panel de Control (Dueño)",
+]
+ROLE_PAGES = {
+    ROLE_ADMIN_OWNER: ALL_PAGES,
+    ROLE_ADMIN: ALL_PAGES,
+    ROLE_OWNER: ALL_PAGES,
+    ROLE_CAJA: ["Cierre de Caja", "Pedidos Ya", "Transferencias Alias"],
+    ROLE_MANAGER: ["Gastos Detallados", "Gestión de Personal", "Panel de Control (Dueño)"],
+}
 # Estilos
 st.markdown(
     """
@@ -52,28 +79,71 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-# ---------- Navegación ----------
+
+
+def _allowed_pages_for_role(role: str) -> list[str]:
+    return ROLE_PAGES.get(role, [])
+
+
+def _render_login_screen() -> None:
+    st.markdown(f'<p class="main-header">🍽️ {NOMBRE_RESTAURANTE}</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Iniciar sesion</p>', unsafe_allow_html=True)
+
+    with st.form("login_form"):
+        username = st.text_input("Usuario")
+        password = st.text_input("Contrasena", type="password")
+        submitted = st.form_submit_button("Ingresar")
+
+    if submitted:
+        auth = authenticate_user(username, password)
+        if auth:
+            st.session_state["auth_user"] = auth["username"]
+            st.session_state["auth_role"] = auth["role"]
+            st.rerun()
+        st.error("Usuario o contrasena incorrectos")
+
+
 def main():
+    ensure_database()
+    created_defaults = ensure_default_users()
+
+    if "auth_user" not in st.session_state:
+        st.session_state["auth_user"] = None
+    if "auth_role" not in st.session_state:
+        st.session_state["auth_role"] = None
+
+    if not st.session_state.get("auth_user"):
+        if created_defaults:
+            st.info("Usuarios iniciales creados: owner/owner123, manager/manager123, caja/caja123")
+        _render_login_screen()
+        return
+
+    current_user = st.session_state.get("auth_user")
+    current_role = st.session_state.get("auth_role")
+    allowed_pages = _allowed_pages_for_role(current_role)
+
+    if not allowed_pages:
+        st.error("Rol sin permisos configurados.")
+        return
+
     st.markdown(f'<p class="main-header">🍽️ {NOMBRE_RESTAURANTE}</p>', unsafe_allow_html=True)
 
     with st.sidebar:
+        st.caption(f"Usuario: {current_user}")
+        st.caption(f"Rol: {current_role}")
+        if st.button("Cerrar sesion"):
+            st.session_state["auth_user"] = None
+            st.session_state["auth_role"] = None
+            st.rerun()
+
         st.header("Navegación")
         pagina = st.radio(
             "Sección",
-            [
-                "Cierre de Caja",
-                "Administrar Cierres",
-                "Gastos Detallados",
-                "Gestión de Personal",
-                "Pedidos Ya",
-                "Transferencias Alias",
-                "Administración Global",
-                "Panel de Control (Dueño)",
-            ],
+            allowed_pages,
             label_visibility="collapsed",
         )
         st.divider()
-        # Resumen rápido en sidebar
+        # Resumen rapido en sidebar
         df_c = cargar_cierres()
         df_g = cargar_gastos()
         df_s = cargar_sueldos()
@@ -84,19 +154,22 @@ def main():
         if not df_s.empty:
             st.metric("Pagos de sueldos", len(df_s))
 
-    # ---------- Página: Cierre de Caja ----------
+    if pagina not in allowed_pages:
+        st.error("No tiene permisos para acceder a esta sección.")
+        return
+    # ---------- PÃ¡gina: Cierre de Caja ----------
     if pagina == "Cierre de Caja":
         st.markdown('<p class="sub-header">Cierre de Caja</p>', unsafe_allow_html=True)
         with st.sidebar:
             if not df_c.empty:
-                with st.expander("Últimos cierres"):
+                with st.expander("Ãšltimos cierres"):
                     st.dataframe(df_c.tail(10)[["fecha", "turno", "total_turno"]], use_container_width=True, hide_index=True)
 
-        st.subheader("📝 Nuevo cierre de caja")
+        st.subheader("ðŸ“ Nuevo cierre de caja")
         with st.form("form_cierre", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
-                turno = st.selectbox("Turno", ["Mañana", "Tarde", "Noche", "Día completo"], index=0)
+                turno = st.selectbox("Turno", ["MaÃ±ana", "Tarde", "Noche", "DÃ­a completo"], index=0)
                 inicio_caja = st.number_input("Inicio de Caja ($)", min_value=0.0, value=0.0, step=100.0, format="%.2f")
                 efectivo = st.number_input("Efectivo ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", help="Efectivo en caja (antes de descontar gastos)")
                 gastos = st.number_input("Gastos ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", help="Gastos pagados de la caja")
@@ -104,7 +177,7 @@ def main():
                 posnet = st.number_input("Posnet ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f")
                 transferencias = st.number_input("Transferencias ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f")
                 pedidosya = st.number_input("PedidosYa ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f")
-                valor_z = st.number_input("Valor Z (Fiscal) *", min_value=0.0, value=0.0, step=1.0, format="%.0f", help="Obligatorio. Número del reporte Z de la máquina fiscal.")
+                valor_z = st.number_input("Valor Z (Fiscal) *", min_value=0.0, value=0.0, step=1.0, format="%.0f", help="Obligatorio. NÃºmero del reporte Z de la mÃ¡quina fiscal.")
             if st.form_submit_button("Calcular y guardar cierre"):
                 efectivo_neto = efectivo - gastos
                 total_turno = calcular_total_turno(efectivo, posnet, transferencias, pedidosya, gastos, inicio_caja)
@@ -130,7 +203,7 @@ def main():
                 st.metric("Total de Turno", f"$ {p['total_turno']:,.2f}")
             if "valor_z" not in p:
                 p["valor_z"] = 0.0
-            if st.button("✅ Guardar este cierre en el historial", type="primary"):
+            if st.button("âœ… Guardar este cierre en el historial", type="primary"):
                 df_c = cargar_cierres()
                 df_c = pd.concat([df_c, pd.DataFrame([p])], ignore_index=True)
                 guardar_cierre(df_c)
@@ -139,26 +212,26 @@ def main():
                 st.success("Cierre guardado en cierres.csv")
                 st.rerun()
 
-        with st.expander("ℹ️ Cómo se calcula el Total de Turno"):
-            st.markdown("""**Total de Turno** = (Efectivo + Posnet + Transferencias + PedidosYa) − Gastos − Inicio de Caja. Los gastos se restan del efectivo (se pagan de la caja).""")
+        with st.expander("â„¹ï¸ CÃ³mo se calcula el Total de Turno"):
+            st.markdown("""**Total de Turno** = (Efectivo + Posnet + Transferencias + PedidosYa) âˆ’ Gastos âˆ’ Inicio de Caja. Los gastos se restan del efectivo (se pagan de la caja).""")
 
-    # ---------- Página: Administrar Cierres ----------
+    # ---------- PÃ¡gina: Administrar Cierres ----------
     elif pagina == "Administrar Cierres":
         st.markdown('<p class="sub-header">Administrar Cierres</p>', unsafe_allow_html=True)
         df_cierres = cargar_cierres()
 
-        # Confirmación de eliminación
+        # ConfirmaciÃ³n de eliminaciÃ³n
         if st.session_state.get("delete_confirm_idx") is not None:
             idx_del = st.session_state["delete_confirm_idx"]
             if idx_del in df_cierres.index:
                 fila_del = df_cierres.loc[idx_del]
-                detalle = f"{fila_del.get('fecha', '')} — Turno {fila_del.get('turno', '')} — $ {float(fila_del.get('total_turno', 0)):,.2f}"
+                detalle = f"{fila_del.get('fecha', '')} â€” Turno {fila_del.get('turno', '')} â€” $ {float(fila_del.get('total_turno', 0)):,.2f}"
             else:
                 detalle = ""
-            st.warning(f"**¿Estás seguro de que quieres eliminar este cierre de Coronados?** ({detalle}) Esta acción no se puede deshacer.")
+            st.warning(f"**Â¿EstÃ¡s seguro de que quieres eliminar este cierre de Coronados?** ({detalle}) Esta acciÃ³n no se puede deshacer.")
             c1, c2, c3 = st.columns([1, 1, 2])
             with c1:
-                if st.button("Sí, eliminar", type="primary", key="confirm_del"):
+                if st.button("SÃ­, eliminar", type="primary", key="confirm_del"):
                     df_cierres = df_cierres.drop(idx_del).reset_index(drop=True)
                     guardar_cierre(df_cierres)
                     del st.session_state["delete_confirm_idx"]
@@ -171,16 +244,16 @@ def main():
                     del st.session_state["delete_confirm_idx"]
                     st.rerun()
 
-        # Formulario de edición
+        # Formulario de ediciÃ³n
         editing_idx = st.session_state.get("editing_cierre_idx")
         if editing_idx is not None and not df_cierres.empty and editing_idx in df_cierres.index:
             fila = df_cierres.loc[editing_idx]
-            st.subheader("✏️ Editar cierre")
+            st.subheader("âœï¸ Editar cierre")
             with st.form("form_editar_cierre"):
                 e1, e2 = st.columns(2)
                 with e1:
-                    opciones_turno = ["Mañana", "Tarde", "Noche", "Día completo"]
-                    turno_actual = str(fila["turno"]).strip() if pd.notna(fila["turno"]) else "Mañana"
+                    opciones_turno = ["MaÃ±ana", "Tarde", "Noche", "DÃ­a completo"]
+                    turno_actual = str(fila["turno"]).strip() if pd.notna(fila["turno"]) else "MaÃ±ana"
                     idx_turno = opciones_turno.index(turno_actual) if turno_actual in opciones_turno else 0
                     turno_e = st.selectbox("Turno", opciones_turno, index=idx_turno)
                     def _v(key: str) -> float:
@@ -221,12 +294,12 @@ def main():
                     del st.session_state["editing_cierre_idx"]
                     st.success("Cierre actualizado correctamente.")
                     st.rerun()
-            if st.button("Cancelar edición"):
+            if st.button("Cancelar ediciÃ³n"):
                 del st.session_state["editing_cierre_idx"]
                 st.rerun()
             st.divider()
 
-        # Tabla de cierres (más recientes arriba)
+        # Tabla de cierres (mÃ¡s recientes arriba)
         st.subheader("Cierres guardados")
         if df_cierres.empty:
             st.info("No hay cierres guardados.")
@@ -255,16 +328,16 @@ def main():
                         cols[ii].text(str(r.get("valor_z", ""))); ii += 1
                     cols[ii].text(f"$ {float(r['total_turno']):,.0f}"); ii += 1
                     with cols[ii]:
-                        if st.button("✏️ Editar", key=f"edit_{idx}"):
+                        if st.button("âœï¸ Editar", key=f"edit_{idx}"):
                             st.session_state["editing_cierre_idx"] = idx
                             st.rerun()
                     ii += 1
                     with cols[ii]:
-                        if st.button("🗑️ Eliminar", key=f"del_{idx}"):
+                        if st.button("ðŸ—‘ï¸ Eliminar", key=f"del_{idx}"):
                             st.session_state["delete_confirm_idx"] = idx
                             st.rerun()
 
-    # ---------- Página: Gastos Detallados ----------
+    # ---------- PÃ¡gina: Gastos Detallados ----------
     elif pagina == "Gastos Detallados":
         st.markdown('<p class="sub-header">Gastos Detallados</p>', unsafe_allow_html=True)
         st.subheader("Nuevo gasto")
@@ -278,7 +351,7 @@ def main():
         with col_monto:
             monto_gasto = st.number_input("Monto ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", key="monto_g")
         with col_cat:
-            categoria = st.selectbox("Categoría", options=CATEGORIAS_GASTO, key="categoria_g")
+            categoria = st.selectbox("CategorÃ­a", options=CATEGORIAS_GASTO, key="categoria_g")
 
         if st.button("Guardar gasto", type="primary"):
             nombre_proveedor = (proveedor_otro or "").strip() if proveedor_sel == "Otro" else proveedor_sel
@@ -302,18 +375,18 @@ def main():
         st.subheader("Gastos registrados")
         df_g = cargar_gastos()
 
-        # Confirmación de eliminación de gasto
+        # ConfirmaciÃ³n de eliminaciÃ³n de gasto
         if st.session_state.get("delete_confirm_gasto_idx") is not None:
             idx_del = st.session_state["delete_confirm_gasto_idx"]
             if idx_del in df_g.index:
                 fila_del = df_g.loc[idx_del]
-                detalle = f"{fila_del.get('fecha', '')} — {fila_del.get('proveedor', '')} — $ {float(fila_del.get('monto', 0)):,.2f}"
+                detalle = f"{fila_del.get('fecha', '')} â€” {fila_del.get('proveedor', '')} â€” $ {float(fila_del.get('monto', 0)):,.2f}"
             else:
                 detalle = ""
-            st.warning(f"**¿Estás seguro de que quieres eliminar este gasto?** ({detalle}) Esta acción no se puede deshacer.")
+            st.warning(f"**Â¿EstÃ¡s seguro de que quieres eliminar este gasto?** ({detalle}) Esta acciÃ³n no se puede deshacer.")
             c1, c2, c3 = st.columns([1, 1, 2])
             with c1:
-                if st.button("Sí, eliminar", type="primary", key="confirm_del_gasto"):
+                if st.button("SÃ­, eliminar", type="primary", key="confirm_del_gasto"):
                     df_g = df_g.drop(idx_del).reset_index(drop=True)
                     guardar_gastos(df_g)
                     del st.session_state["delete_confirm_gasto_idx"]
@@ -326,11 +399,11 @@ def main():
                     del st.session_state["delete_confirm_gasto_idx"]
                     st.rerun()
 
-        # Formulario de edición de gasto
+        # Formulario de ediciÃ³n de gasto
         editing_gasto_idx = st.session_state.get("editing_gasto_idx")
         if editing_gasto_idx is not None and not df_g.empty and editing_gasto_idx in df_g.index:
             fila_g = df_g.loc[editing_gasto_idx]
-            st.subheader("✏️ Editar gasto")
+            st.subheader("âœï¸ Editar gasto")
             proveedores_lista = lista_proveedores()
             proveedor_actual = str(fila_g["proveedor"]).strip() if pd.notna(fila_g["proveedor"]) else ""
             proveedor_en_lista = proveedor_actual in proveedores_lista
@@ -346,7 +419,7 @@ def main():
                         index=idx_prov,
                         key="edit_proveedor",
                     )
-                    prov_otro_edit = st.text_input("Si eligió 'Otro', nombre del proveedor", value=proveedor_actual if not proveedor_en_lista else "", key="edit_proveedor_otro")
+                    prov_otro_edit = st.text_input("Si eligiÃ³ 'Otro', nombre del proveedor", value=proveedor_actual if not proveedor_en_lista else "", key="edit_proveedor_otro")
                 with eg2:
                     _m = fila_g.get("monto")
                     try:
@@ -357,7 +430,7 @@ def main():
                 with eg3:
                     cat_actual = str(fila_g["categoria"]).strip() if pd.notna(fila_g["categoria"]) else CATEGORIAS_GASTO[0]
                     cat_edit = st.selectbox(
-                        "Categoría",
+                        "CategorÃ­a",
                         options=CATEGORIAS_GASTO,
                         index=CATEGORIAS_GASTO.index(cat_actual) if cat_actual in CATEGORIAS_GASTO else 0,
                         key="edit_categoria",
@@ -374,13 +447,13 @@ def main():
                     del st.session_state["editing_gasto_idx"]
                     st.success("Gasto actualizado correctamente.")
                     st.rerun()
-            if st.button("Cancelar edición", key="cancel_edit_gasto"):
+            if st.button("Cancelar ediciÃ³n", key="cancel_edit_gasto"):
                 del st.session_state["editing_gasto_idx"]
                 st.rerun()
             st.divider()
 
         if df_g.empty:
-            st.info("Aún no hay gastos registrados.")
+            st.info("AÃºn no hay gastos registrados.")
         else:
             df_g_ver = df_g.sort_values("fecha", ascending=False)
             # Encabezados
@@ -388,7 +461,7 @@ def main():
             with gh1: st.markdown("**Fecha**")
             with gh2: st.markdown("**Proveedor**")
             with gh3: st.markdown("**Monto**")
-            with gh4: st.markdown("**Categoría**")
+            with gh4: st.markdown("**CategorÃ­a**")
             with gh5: st.markdown("**Editar**")
             with gh6: st.markdown("**Eliminar**")
             st.markdown("---")
@@ -400,25 +473,25 @@ def main():
                 with g3: st.text(f"$ {float(r['monto']):,.2f}")
                 with g4: st.text(str(r["categoria"]))
                 with g5:
-                    if st.button("✏️ Editar", key=f"edit_gasto_{idx}"):
+                    if st.button("âœï¸ Editar", key=f"edit_gasto_{idx}"):
                         st.session_state["editing_gasto_idx"] = idx
                         st.rerun()
                 with g6:
-                    if st.button("🗑️ Eliminar", key=f"del_gasto_{idx}"):
+                    if st.button("ðŸ—‘ï¸ Eliminar", key=f"del_gasto_{idx}"):
                         st.session_state["delete_confirm_gasto_idx"] = idx
                         st.rerun()
             st.metric("Total gastos", f"$ {df_g['monto'].sum():,.2f}")
 
-    # ---------- Página: Gestión de Personal ----------
-    elif pagina == "Gestión de Personal":
-        st.markdown('<p class="sub-header">Gestión de Personal</p>', unsafe_allow_html=True)
+    # ---------- PÃ¡gina: GestiÃ³n de Personal ----------
+    elif pagina == "GestiÃ³n de Personal":
+        st.markdown('<p class="sub-header">GestiÃ³n de Personal</p>', unsafe_allow_html=True)
         st.subheader("Pagar sueldo")
 
         empleados = lista_empleados()
         col_emp, col_monto = st.columns(2)
         with col_emp:
             empleado_sel = st.selectbox("Empleado", options=empleados, key="empleado")
-            otro_empleado = st.text_input("Si eligió 'Otro', escriba el nombre del empleado", key="empleado_otro", placeholder="Ej: Repartidor")
+            otro_empleado = st.text_input("Si eligiÃ³ 'Otro', escriba el nombre del empleado", key="empleado_otro", placeholder="Ej: Repartidor")
         with col_monto:
             monto_sueldo = st.number_input("Monto pagado ($)", min_value=0.0, value=0.0, step=100.0, format="%.2f", key="monto_s")
 
@@ -427,7 +500,7 @@ def main():
             empleado_final = "Otro"
         if st.button("Registrar pago de sueldo", type="primary"):
             if empleado_sel == "Otro" and not (otro_empleado or "").strip():
-                st.warning("Si eligió 'Otro', escriba el nombre del empleado.")
+                st.warning("Si eligiÃ³ 'Otro', escriba el nombre del empleado.")
             elif monto_sueldo <= 0:
                 st.warning("El monto debe ser mayor a 0.")
             else:
@@ -444,18 +517,18 @@ def main():
         st.subheader("Pagos registrados")
         df_s = cargar_sueldos()
 
-        # Confirmación eliminar sueldo
+        # ConfirmaciÃ³n eliminar sueldo
         if st.session_state.get("delete_confirm_sueldo_idx") is not None:
             idx_sdel = st.session_state["delete_confirm_sueldo_idx"]
             if idx_sdel in df_s.index:
                 fila_sdel = df_s.loc[idx_sdel]
-                detalle_s = f"{fila_sdel.get('fecha', '')} — {fila_sdel.get('empleado', '')} — $ {float(fila_sdel.get('monto', 0)):,.2f}"
+                detalle_s = f"{fila_sdel.get('fecha', '')} â€” {fila_sdel.get('empleado', '')} â€” $ {float(fila_sdel.get('monto', 0)):,.2f}"
             else:
                 detalle_s = ""
-            st.warning(f"**¿Estás seguro de que quieres eliminar este pago de sueldo?** ({detalle_s}) Esta acción no se puede deshacer.")
+            st.warning(f"**Â¿EstÃ¡s seguro de que quieres eliminar este pago de sueldo?** ({detalle_s}) Esta acciÃ³n no se puede deshacer.")
             sc1, sc2, sc3 = st.columns([1, 1, 2])
             with sc1:
-                if st.button("Sí, eliminar", type="primary", key="confirm_del_sueldo"):
+                if st.button("SÃ­, eliminar", type="primary", key="confirm_del_sueldo"):
                     df_s = df_s.drop(idx_sdel).reset_index(drop=True)
                     guardar_sueldos(df_s)
                     del st.session_state["delete_confirm_sueldo_idx"]
@@ -468,11 +541,11 @@ def main():
                     del st.session_state["delete_confirm_sueldo_idx"]
                     st.rerun()
 
-        # Formulario edición sueldo
+        # Formulario ediciÃ³n sueldo
         editing_sueldo_idx = st.session_state.get("editing_sueldo_idx")
         if editing_sueldo_idx is not None and not df_s.empty and editing_sueldo_idx in df_s.index:
             fila_s = df_s.loc[editing_sueldo_idx]
-            st.subheader("✏️ Editar pago de sueldo")
+            st.subheader("âœï¸ Editar pago de sueldo")
             fecha_s_default = _fecha_str_a_date(fila_s["fecha"]) or date.today()
             with st.form("form_editar_sueldo"):
                 fecha_s_edit = st.date_input("Fecha", value=fecha_s_default, key="edit_fecha_sueldo")
@@ -496,13 +569,13 @@ def main():
                     del st.session_state["editing_sueldo_idx"]
                     st.success("Pago actualizado correctamente.")
                     st.rerun()
-            if st.button("Cancelar edición", key="cancel_edit_sueldo"):
+            if st.button("Cancelar ediciÃ³n", key="cancel_edit_sueldo"):
                 del st.session_state["editing_sueldo_idx"]
                 st.rerun()
             st.divider()
 
         if df_s.empty:
-            st.info("Aún no hay pagos de sueldos registrados.")
+            st.info("AÃºn no hay pagos de sueldos registrados.")
         else:
             df_s_ver = df_s.sort_values("fecha", ascending=False)
             sh1, sh2, sh3, sh4, sh5 = st.columns([2, 2, 1.2, 0.7, 0.7])
@@ -519,16 +592,16 @@ def main():
                 with s2: st.text(str(rs["empleado"]))
                 with s3: st.text(f"$ {float(rs['monto']):,.2f}")
                 with s4:
-                    if st.button("✏️ Editar", key=f"edit_sueldo_{idx}"):
+                    if st.button("âœï¸ Editar", key=f"edit_sueldo_{idx}"):
                         st.session_state["editing_sueldo_idx"] = idx
                         st.rerun()
                 with s5:
-                    if st.button("🗑️ Eliminar", key=f"del_sueldo_{idx}"):
+                    if st.button("ðŸ—‘ï¸ Eliminar", key=f"del_sueldo_{idx}"):
                         st.session_state["delete_confirm_sueldo_idx"] = idx
                         st.rerun()
             st.metric("Total sueldos pagados", f"$ {df_s['monto'].sum():,.2f}")
 
-    # ---------- Página: Pedidos Ya ----------
+    # ---------- PÃ¡gina: Pedidos Ya ----------
     elif pagina == "Pedidos Ya":
         st.markdown('<p class="sub-header">Pedidos Ya</p>', unsafe_allow_html=True)
         st.subheader("Nuevo registro")
@@ -538,7 +611,7 @@ def main():
                 fecha_py = st.date_input("Fecha", value=date.today(), key="py_fecha")
                 monto_py = st.number_input("Monto ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", key="py_monto")
             with fp2:
-                metodo_py = st.selectbox("Método de pago", options=METODOS_PAGO, key="py_metodo")
+                metodo_py = st.selectbox("MÃ©todo de pago", options=METODOS_PAGO, key="py_metodo")
                 comentarios_py = st.text_area("Comentarios", key="py_comentarios", height=80)
             if st.form_submit_button("Guardar"):
                 df_py = cargar_pedidosya()
@@ -559,7 +632,7 @@ def main():
             st.dataframe(df_py.sort_values("fecha", ascending=False), use_container_width=True, hide_index=True)
             st.metric("Total Pedidos Ya", f"$ {df_py['monto'].sum():,.2f}")
 
-    # ---------- Página: Transferencias Alias ----------
+    # ---------- PÃ¡gina: Transferencias Alias ----------
     elif pagina == "Transferencias Alias":
         st.markdown('<p class="sub-header">Transferencias Alias</p>', unsafe_allow_html=True)
         st.subheader("Nueva transferencia")
@@ -567,7 +640,7 @@ def main():
             ft1, ft2 = st.columns(2)
             with ft1:
                 fecha_tr = st.date_input("Fecha", value=date.today(), key="tr_fecha")
-                alias_tr = st.text_input("Alias / App", placeholder="Ej: Mercado Pago, Ualá...", key="tr_alias")
+                alias_tr = st.text_input("Alias / App", placeholder="Ej: Mercado Pago, UalÃ¡...", key="tr_alias")
             with ft2:
                 monto_tr = st.number_input("Monto ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", key="tr_monto")
                 comentario_tr = st.text_area("Comentario", key="tr_comentario", height=80)
@@ -590,9 +663,9 @@ def main():
             st.dataframe(df_tr.sort_values("fecha", ascending=False), use_container_width=True, hide_index=True)
             st.metric("Total transferencias", f"$ {df_tr['monto'].sum():,.2f}")
 
-    # ---------- Página: Administración Global ----------
-    elif pagina == "Administración Global":
-        st.markdown('<p class="sub-header">Administración Global</p>', unsafe_allow_html=True)
+    # ---------- PÃ¡gina: AdministraciÃ³n Global ----------
+    elif pagina == "AdministraciÃ³n Global":
+        st.markdown('<p class="sub-header">AdministraciÃ³n Global</p>', unsafe_allow_html=True)
         tabla_admin = st.selectbox("Seleccione la tabla", ["Sueldos", "Gastos", "Pedidos Ya", "Transferencias"], key="admin_tabla")
         st.session_state["admin_tabla_sel"] = tabla_admin
 
@@ -609,15 +682,15 @@ def main():
             _df = cargar_transferencias().sort_values("fecha", ascending=False)
             _cols = ["fecha", "alias_app", "monto", "comentario"]
 
-        # Confirmación eliminar (admin)
+        # ConfirmaciÃ³n eliminar (admin)
         _del_key = st.session_state.get("admin_del_key")
         if _del_key is not None:
             _t, _idx = _del_key
             if _t == tabla_admin and _idx in _df.index:
                 _r = _df.loc[_idx]
-                _det = " — ".join(str(_r.get(c, "")) for c in _cols[:3])
-                st.warning(f"**¿Eliminar este registro?** ({_det}) Esta acción no se puede deshacer.")
-                if st.button("Sí, eliminar", type="primary", key="admin_confirm_del"):
+                _det = " â€” ".join(str(_r.get(c, "")) for c in _cols[:3])
+                st.warning(f"**Â¿Eliminar este registro?** ({_det}) Esta acciÃ³n no se puede deshacer.")
+                if st.button("SÃ­, eliminar", type="primary", key="admin_confirm_del"):
                     if _t == "Sueldos":
                         d = cargar_sueldos(); d = d.drop(_idx).reset_index(drop=True); guardar_sueldos(d)
                     elif _t == "Gastos":
@@ -635,7 +708,7 @@ def main():
                     del st.session_state["admin_del_key"]
                     st.rerun()
 
-        # Edición (admin)
+        # EdiciÃ³n (admin)
         _edit_key = st.session_state.get("admin_edit_key")
         if _edit_key is not None:
             _t, _idx = _edit_key
@@ -644,7 +717,7 @@ def main():
                     del st.session_state["admin_edit_key"]
             elif _idx in _df.index:
                 _fila = _df.loc[_idx]
-                st.subheader(f"✏️ Editar registro de {tabla_admin}")
+                st.subheader(f"âœï¸ Editar registro de {tabla_admin}")
                 with st.form("form_admin_edit"):
                     if tabla_admin == "Sueldos":
                         _fecha_val = _fecha_str_a_date(_fila["fecha"]) or date.today()
@@ -659,12 +732,12 @@ def main():
                         fe = st.date_input("Fecha", value=_fecha_val, key="ae_fecha_g")
                         pr = st.text_input("Proveedor", value=str(_fila.get("proveedor", "")), key="ae_prov")
                         mo = st.number_input("Monto ($)", min_value=0.0, value=max(0.0, float(_fila["monto"])) if pd.notna(_fila["monto"]) else 0.0, step=50.0, format="%.2f", key="ae_monto_g")
-                        ca = st.selectbox("Categoría", options=CATEGORIAS_GASTO, index=CATEGORIAS_GASTO.index(str(_fila["categoria"])) if str(_fila.get("categoria", "")).strip() in CATEGORIAS_GASTO else 0, key="ae_cat")
+                        ca = st.selectbox("CategorÃ­a", options=CATEGORIAS_GASTO, index=CATEGORIAS_GASTO.index(str(_fila["categoria"])) if str(_fila.get("categoria", "")).strip() in CATEGORIAS_GASTO else 0, key="ae_cat")
                     elif tabla_admin == "Pedidos Ya":
                         _fecha_val = _fecha_str_a_date(_fila["fecha"]) or date.today()
                         fe = st.date_input("Fecha", value=_fecha_val, key="ae_fecha_py")
                         mo = st.number_input("Monto ($)", min_value=0.0, value=max(0.0, float(_fila["monto"])) if pd.notna(_fila["monto"]) else 0.0, step=50.0, format="%.2f", key="ae_monto_py")
-                        me = st.selectbox("Método de pago", options=METODOS_PAGO, index=METODOS_PAGO.index(str(_fila.get("metodo_pago", "Efectivo"))) if str(_fila.get("metodo_pago", "")).strip() in METODOS_PAGO else 0, key="ae_metodo")
+                        me = st.selectbox("MÃ©todo de pago", options=METODOS_PAGO, index=METODOS_PAGO.index(str(_fila.get("metodo_pago", "Efectivo"))) if str(_fila.get("metodo_pago", "")).strip() in METODOS_PAGO else 0, key="ae_metodo")
                         co = st.text_area("Comentarios", value=str(_fila.get("comentarios", "")), key="ae_com_py")
                     else:
                         _fecha_val = _fecha_str_a_date(_fila["fecha"]) or date.today()
@@ -684,7 +757,7 @@ def main():
                         del st.session_state["admin_edit_key"]
                         st.success("Registro actualizado.")
                         st.rerun()
-                if st.button("Cancelar edición", key="admin_cancel_edit"):
+                if st.button("Cancelar ediciÃ³n", key="admin_cancel_edit"):
                     del st.session_state["admin_edit_key"]
                     st.rerun()
                 st.divider()
@@ -698,19 +771,19 @@ def main():
                 for i, c in enumerate(_cols):
                     with cols_a[i]: st.text(str(r.get(c, "")))
                 with cols_a[-2]:
-                    if st.button("✏️ Editar", key=f"admin_edit_{tabla_admin}_{idx}"):
+                    if st.button("âœï¸ Editar", key=f"admin_edit_{tabla_admin}_{idx}"):
                         st.session_state["admin_edit_key"] = (tabla_admin, idx)
                         st.rerun()
                 with cols_a[-1]:
-                    if st.button("🗑️ Eliminar", key=f"admin_del_{tabla_admin}_{idx}"):
+                    if st.button("ðŸ—‘ï¸ Eliminar", key=f"admin_del_{tabla_admin}_{idx}"):
                         st.session_state["admin_del_key"] = (tabla_admin, idx)
                         st.rerun()
 
-    # ---------- Página: Panel de Control (Dueño) ----------
-    elif pagina == "Panel de Control (Dueño)":
-        st.markdown('<p class="sub-header">Panel de Control (Dueño)</p>', unsafe_allow_html=True)
+    # ---------- PÃ¡gina: Panel de Control (DueÃ±o) ----------
+    elif pagina == "Panel de Control (DueÃ±o)":
+        st.markdown('<p class="sub-header">Panel de Control (DueÃ±o)</p>', unsafe_allow_html=True)
 
-        periodo = st.radio("Período", ["Esta semana", "Este mes", "Todo"], horizontal=True)
+        periodo = st.radio("PerÃ­odo", ["Esta semana", "Este mes", "Todo"], horizontal=True)
 
         df_c = cargar_cierres()
         df_g = cargar_gastos()
@@ -778,7 +851,7 @@ def main():
             type="primary",
         )
 
-    # Botón de export en sidebar para todas las páginas
+    # BotÃ³n de export en sidebar para todas las pÃ¡ginas
     with st.sidebar:
         st.divider()
         excel_bytes = generar_reporte_excel()
@@ -793,3 +866,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

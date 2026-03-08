@@ -79,3 +79,19 @@ python scripts/migrate_csv_to_sqlite.py --force
 ## Notes
 - Streamlit UI behavior is preserved; storage calls still use the same `cargar_*` / `guardar_*` interface.
 - Excel reference workbook filename: `Administracion Coronados.xlsx`
+
+## Authentication and Roles
+The app now includes a simple login system backed by SQLite (`users` table in `coronados.db`).
+Passwords are stored as salted PBKDF2-SHA256 hashes.
+
+Roles:
+- `admin/owner`: full access
+- `manager`: `Gastos Detallados`, `Gestión de Personal`, `Panel de Control (Dueño)`
+- `caja`: `Cierre de Caja`, `Pedidos Ya`, `Transferencias Alias`
+
+On first run (if `users` is empty), default users are created:
+- `owner` / `owner123` (`admin/owner`)
+- `manager` / `manager123` (`manager`)
+- `caja` / `caja123` (`caja`)
+
+Recommended: log in as `owner` and change these passwords directly in your DB workflow after initial setup.
