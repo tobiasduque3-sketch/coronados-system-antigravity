@@ -4,7 +4,9 @@ import hashlib
 import secrets
 from typing import Any
 
-from utils.database import get_connection
+import pandas as pd
+
+from utils.database import ensure_database, get_connection
 
 ROLE_ADMIN_OWNER = "admin/owner"
 ROLE_ADMIN = "admin"
@@ -12,6 +14,7 @@ ROLE_OWNER = "owner"
 ROLE_MANAGER = "manager"
 ROLE_CAJA = "caja"
 VALID_ROLES = {ROLE_ADMIN_OWNER, ROLE_ADMIN, ROLE_OWNER, ROLE_MANAGER, ROLE_CAJA}
+ASSIGNABLE_ROLES = {ROLE_ADMIN_OWNER, ROLE_MANAGER, ROLE_CAJA}
 
 
 def _hash_password(password: str, salt: str | None = None) -> str:
@@ -50,6 +53,7 @@ def ensure_default_users() -> bool:
         ("caja", "caja123", ROLE_CAJA),
     ]
 
+    ensure_database()
     with get_connection() as conn:
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count > 0:
@@ -68,6 +72,7 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     if not username or not password:
         return None
 
+    ensure_database()
     with get_connection() as conn:
         row = conn.execute(
             "SELECT username, password_hash, role, is_active FROM users WHERE username = ?",
@@ -87,3 +92,86 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     if not _verify_password(password, user["password_hash"]):
         return None
     return {"username": user["username"], "role": user["role"]}
+
+
+def list_users() -> pd.DataFrame:
+    ensure_database()
+    with get_connection() as conn:
+        df = pd.read_sql_query(
+            "SELECT username, role, is_active, created_at FROM users ORDER BY username",
+            conn,
+        )
+    if df.empty:
+        return pd.DataFrame(columns=["username", "role", "is_active", "created_at"])
+    return df
+
+
+def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
+    username = (username or "").strip()
+    if not username:
+        return False, "Usuario requerido."
+    if len(password or "") < 4:
+        return False, "Contrasena minima: 4 caracteres."
+    if role not in ASSIGNABLE_ROLES:
+        return False, "Rol invalido."
+
+    ensure_database()
+    with get_connection() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if exists:
+            return False, "El usuario ya existe."
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
+            (username, _hash_password(password), role),
+        )
+    return True, "Usuario creado."
+
+
+def reset_password(username: str, new_password: str) -> tuple[bool, str]:
+    username = (username or "").strip()
+    if not username:
+        return False, "Usuario requerido."
+    if len(new_password or "") < 4:
+        return False, "Contrasena minima: 4 caracteres."
+
+    ensure_database()
+    with get_connection() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if not exists:
+            return False, "Usuario no encontrado."
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (_hash_password(new_password), username),
+        )
+    return True, "Contrasena actualizada."
+
+
+def set_user_active(username: str, is_active: bool) -> tuple[bool, str]:
+    username = (username or "").strip()
+    if not username:
+        return False, "Usuario requerido."
+
+    ensure_database()
+    with get_connection() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if not exists:
+            return False, "Usuario no encontrado."
+        conn.execute(
+            "UPDATE users SET is_active = ? WHERE username = ?",
+            (1 if is_active else 0, username),
+        )
+    return True, "Estado de usuario actualizado."
+
+
+def delete_user(username: str) -> tuple[bool, str]:
+    username = (username or "").strip()
+    if not username:
+        return False, "Usuario requerido."
+
+    ensure_database()
+    with get_connection() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if not exists:
+            return False, "Usuario no encontrado."
+        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    return True, "Usuario eliminado."

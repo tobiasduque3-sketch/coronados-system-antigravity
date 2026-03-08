@@ -14,8 +14,14 @@ from services.auth import (
     ROLE_OWNER,
     ROLE_CAJA,
     ROLE_MANAGER,
+    ASSIGNABLE_ROLES,
     authenticate_user,
+    create_user,
+    delete_user,
     ensure_default_users,
+    list_users,
+    reset_password,
+    set_user_active,
 )
 from services.business import (
     _fecha_str_a_date,
@@ -57,6 +63,7 @@ ALL_PAGES = [
     "Pedidos Ya",
     "Transferencias Alias",
     "Administración Global",
+    "Gestion de Usuarios",
     "Panel de Control (Dueño)",
 ]
 ROLE_PAGES = {
@@ -66,6 +73,7 @@ ROLE_PAGES = {
     ROLE_CAJA: ["Cierre de Caja", "Pedidos Ya", "Transferencias Alias"],
     ROLE_MANAGER: ["Gastos Detallados", "Gestión de Personal", "Panel de Control (Dueño)"],
 }
+ADMIN_ROLES = {ROLE_ADMIN_OWNER, ROLE_ADMIN, ROLE_OWNER}
 # Estilos
 st.markdown(
     """
@@ -779,6 +787,65 @@ def main():
                         st.session_state["admin_del_key"] = (tabla_admin, idx)
                         st.rerun()
 
+    # ---------- Pagina: Gestion de Usuarios ----------
+    elif pagina == "Gestion de Usuarios":
+        if current_role not in ADMIN_ROLES:
+            st.error("No tiene permisos para administrar usuarios.")
+            st.stop()
+
+        st.markdown('<p class="sub-header">Gestion de Usuarios</p>', unsafe_allow_html=True)
+
+        df_users = list_users()
+        if df_users.empty:
+            st.info("No hay usuarios cargados.")
+        else:
+            df_show = df_users.copy()
+            df_show["activo"] = df_show["is_active"].apply(lambda x: "Si" if int(x) == 1 else "No")
+            st.dataframe(df_show[["username", "role", "activo", "created_at"]], use_container_width=True, hide_index=True)
+
+        st.subheader("Crear usuario")
+        with st.form("form_create_user"):
+            new_username = st.text_input("Usuario")
+            new_password = st.text_input("Contrasena", type="password")
+            new_role = st.selectbox("Rol", options=sorted(ASSIGNABLE_ROLES), index=0)
+            if st.form_submit_button("Crear usuario"):
+                ok, msg = create_user(new_username, new_password, new_role)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.warning(msg)
+
+        if not df_users.empty:
+            usernames = df_users["username"].tolist()
+
+            st.subheader("Resetear contrasena")
+            with st.form("form_reset_pass"):
+                user_reset = st.selectbox("Usuario", options=usernames, key="user_reset_select")
+                new_pass = st.text_input("Nueva contrasena", type="password")
+                if st.form_submit_button("Resetear"):
+                    ok, msg = reset_password(user_reset, new_pass)
+                    st.success(msg) if ok else st.warning(msg)
+
+            st.subheader("Estado y eliminacion")
+            with st.form("form_user_status"):
+                target_user = st.selectbox("Usuario objetivo", options=usernames, key="target_user_select")
+                accion = st.selectbox("Accion", options=["Desactivar", "Activar", "Eliminar"], index=0)
+                if st.form_submit_button("Aplicar accion"):
+                    if target_user == current_user:
+                        st.warning("No puede aplicar esta accion sobre su usuario actual.")
+                    else:
+                        if accion == "Desactivar":
+                            ok, msg = set_user_active(target_user, False)
+                        elif accion == "Activar":
+                            ok, msg = set_user_active(target_user, True)
+                        else:
+                            ok, msg = delete_user(target_user)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.warning(msg)
     # ---------- PÃ¡gina: Panel de Control (DueÃ±o) ----------
     elif pagina == "Panel de Control (DueÃ±o)":
         st.markdown('<p class="sub-header">Panel de Control (DueÃ±o)</p>', unsafe_allow_html=True)
@@ -866,4 +933,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 

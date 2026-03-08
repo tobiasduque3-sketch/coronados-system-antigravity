@@ -95,3 +95,20 @@ On first run (if `users` is empty), default users are created:
 - `caja` / `caja123` (`caja`)
 
 Recommended: log in as `owner` and change these passwords directly in your DB workflow after initial setup.
+
+## User Management (Owner/Admin)
+A simple `Gestion de Usuarios` page is available only to admin/owner roles.
+
+Features:
+- list users (`username`, `role`, active status, creation timestamp)
+- create user (`username`, `password`, `role`)
+- reset password
+- activate/deactivate user
+- delete user
+
+Allowed roles for new users:
+- `admin/owner`
+- `manager`
+- `caja`
+
+Passwords are always stored as salted PBKDF2-SHA256 hashes.
