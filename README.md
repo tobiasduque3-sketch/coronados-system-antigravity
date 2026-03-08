@@ -112,3 +112,16 @@ Allowed roles for new users:
 - `caja`
 
 Passwords are always stored as salted PBKDF2-SHA256 hashes.
+
+## Backup and Restore (Owner/Admin)
+A simple `Backups y Restore` page is available only for admin/owner roles.
+
+Features:
+- create backup of `coronados.db`
+- backup filename includes timestamp: `coronados_YYYYMMDD_HHMMSS.db`
+- list backups from `backups/` folder
+- restore a selected backup with explicit confirmation checkbox
+
+Notes:
+- restore replaces the current `coronados.db`
+- backups are regular `.db` file copies

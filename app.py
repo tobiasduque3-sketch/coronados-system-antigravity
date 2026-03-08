@@ -30,6 +30,7 @@ from services.business import (
     ingresos_cierres,
 )
 from services.catalogs import CATEGORIAS_GASTO, lista_empleados, lista_proveedores
+from utils.backup_tools import create_db_backup, list_db_backups, restore_db_backup
 from utils.database import ensure_database
 from utils.storage import (
     cargar_cierres,
@@ -64,6 +65,7 @@ ALL_PAGES = [
     "Transferencias Alias",
     "Administración Global",
     "Gestion de Usuarios",
+    "Backups y Restore",
     "Panel de Control (Dueño)",
 ]
 ROLE_PAGES = {
@@ -847,6 +849,44 @@ def main():
                         else:
                             st.warning(msg)
     # ---------- PÃ¡gina: Panel de Control (DueÃ±o) ----------
+    # ---------- Pagina: Backups y Restore ----------
+    elif pagina == "Backups y Restore":
+        if current_role not in ADMIN_ROLES:
+            st.error("No tiene permisos para esta seccion.")
+            st.stop()
+
+        st.markdown('<p class="sub-header">Backups y Restore</p>', unsafe_allow_html=True)
+
+        if st.button("Crear backup de base de datos", type="primary"):
+            try:
+                backup_path = create_db_backup()
+                st.success(f"Backup creado: {backup_path.name}")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"No se pudo crear backup: {exc}")
+
+        backups = list_db_backups()
+        if not backups:
+            st.info("No hay backups disponibles.")
+        else:
+            backup_names = [p.name for p in backups]
+            selected_backup = st.selectbox("Backup disponible", options=backup_names)
+            st.caption("La restauracion reemplaza la base actual (coronados.db).")
+
+            confirm_restore = st.checkbox(
+                "Confirmo que quiero restaurar este backup y reemplazar los datos actuales",
+                key="confirm_restore_backup",
+            )
+            if st.button("Restaurar backup seleccionado"):
+                if not confirm_restore:
+                    st.warning("Debe confirmar la restauracion antes de continuar.")
+                else:
+                    ok, msg = restore_db_backup(selected_backup)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
     elif pagina == "Panel de Control (DueÃ±o)":
         st.markdown('<p class="sub-header">Panel de Control (DueÃ±o)</p>', unsafe_allow_html=True)
 
@@ -933,6 +973,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 
