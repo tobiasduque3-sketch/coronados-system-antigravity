@@ -23,6 +23,7 @@ from services.auth import (
     reset_password,
     set_user_active,
 )
+from services.audit import get_audit_logs, log_event
 from services.business import (
     _fecha_str_a_date,
     calcular_total_turno,
@@ -66,6 +67,7 @@ ALL_PAGES = [
     "Administración Global",
     "Gestion de Usuarios",
     "Backups y Restore",
+    "Audit Logs",
     "Panel de Control (Dueño)",
 ]
 ROLE_PAGES = {
@@ -107,9 +109,11 @@ def _render_login_screen() -> None:
     if submitted:
         auth = authenticate_user(username, password)
         if auth:
+            log_event(auth["username"], "login", "auth", "Inicio de sesion exitoso")
             st.session_state["auth_user"] = auth["username"]
             st.session_state["auth_role"] = auth["role"]
             st.rerun()
+        log_event(username, "login_failed", "auth", "Credenciales invalidas")
         st.error("Usuario o contrasena incorrectos")
 
 
@@ -219,6 +223,7 @@ def main():
                 guardar_cierre(df_c)
                 del st.session_state["pendiente_guardar"]
                 st.balloons()
+                log_event(current_user, "create", "cierres", "Cierre guardado")
                 st.success("Cierre guardado en cierres.csv")
                 st.rerun()
 
@@ -247,6 +252,7 @@ def main():
                     del st.session_state["delete_confirm_idx"]
                     if st.session_state.get("editing_cierre_idx") == idx_del:
                         del st.session_state["editing_cierre_idx"]
+                    log_event(current_user, "delete", "cierres", "Cierre eliminado")
                     st.success("Cierre eliminado.")
                     st.rerun()
             with c2:
@@ -302,6 +308,7 @@ def main():
                     df_cierres.loc[editing_idx] = row_out
                     guardar_cierre(df_cierres)
                     del st.session_state["editing_cierre_idx"]
+                    log_event(current_user, "edit", "cierres", "Cierre actualizado")
                     st.success("Cierre actualizado correctamente.")
                     st.rerun()
             if st.button("Cancelar ediciÃ³n"):
@@ -379,6 +386,7 @@ def main():
                 }
                 df_g = pd.concat([df_g, pd.DataFrame([nueva_fila])], ignore_index=True)
                 guardar_gastos(df_g)
+                log_event(current_user, "create", "gastos", "Gasto guardado")
                 st.success("Gasto guardado en gastos.csv")
                 st.rerun()
 
@@ -402,6 +410,7 @@ def main():
                     del st.session_state["delete_confirm_gasto_idx"]
                     if st.session_state.get("editing_gasto_idx") == idx_del:
                         del st.session_state["editing_gasto_idx"]
+                    log_event(current_user, "delete", "gastos", "Gasto eliminado")
                     st.success("Gasto eliminado.")
                     st.rerun()
             with c2:
@@ -455,6 +464,7 @@ def main():
                     }
                     guardar_gastos(df_g)
                     del st.session_state["editing_gasto_idx"]
+                    log_event(current_user, "edit", "gastos", "Gasto actualizado")
                     st.success("Gasto actualizado correctamente.")
                     st.rerun()
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_gasto"):
@@ -521,6 +531,7 @@ def main():
                     "monto": monto_sueldo,
                 }])], ignore_index=True)
                 guardar_sueldos(df_s)
+                log_event(current_user, "create", "sueldos", "Pago de sueldo guardado")
                 st.success("Pago guardado en sueldos.csv")
                 st.rerun()
 
@@ -544,6 +555,7 @@ def main():
                     del st.session_state["delete_confirm_sueldo_idx"]
                     if st.session_state.get("editing_sueldo_idx") == idx_sdel:
                         del st.session_state["editing_sueldo_idx"]
+                    log_event(current_user, "delete", "sueldos", "Pago de sueldo eliminado")
                     st.success("Pago eliminado.")
                     st.rerun()
             with sc2:
@@ -577,6 +589,7 @@ def main():
                     }
                     guardar_sueldos(df_s)
                     del st.session_state["editing_sueldo_idx"]
+                    log_event(current_user, "edit", "sueldos", "Pago de sueldo actualizado")
                     st.success("Pago actualizado correctamente.")
                     st.rerun()
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_sueldo"):
@@ -632,6 +645,7 @@ def main():
                     "comentarios": (comentarios_py or "").strip(),
                 }])], ignore_index=True)
                 guardar_pedidosya(df_py)
+                log_event(current_user, "create", "pedidosya", "Registro creado")
                 st.success("Registro guardado en pedidosya.csv")
                 st.rerun()
         st.subheader("Registros Pedidos Ya")
@@ -663,6 +677,7 @@ def main():
                     "comentario": (comentario_tr or "").strip(),
                 }])], ignore_index=True)
                 guardar_transferencias(df_tr)
+                log_event(current_user, "create", "transferencias", "Registro creado")
                 st.success("Registro guardado en transferencias.csv")
                 st.rerun()
         st.subheader("Transferencias registradas")
@@ -712,6 +727,8 @@ def main():
                     del st.session_state["admin_del_key"]
                     if st.session_state.get("admin_edit_key") == _del_key:
                         del st.session_state["admin_edit_key"]
+                    mod = {"Sueldos": "sueldos", "Gastos": "gastos", "Pedidos Ya": "pedidosya", "Transferencias": "transferencias"}.get(_t, "admin")
+                    log_event(current_user, "delete", mod, "Registro eliminado desde Administracion Global")
                     st.success("Registro eliminado.")
                     st.rerun()
                 if st.button("Cancelar", key="admin_cancel_del"):
@@ -765,6 +782,8 @@ def main():
                         else:
                             d = cargar_transferencias(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "alias_app": al or "", "monto": mo, "comentario": co or ""}; guardar_transferencias(d)
                         del st.session_state["admin_edit_key"]
+                        mod = {"Sueldos": "sueldos", "Gastos": "gastos", "Pedidos Ya": "pedidosya", "Transferencias": "transferencias"}.get(tabla_admin, "admin")
+                        log_event(current_user, "edit", mod, "Registro actualizado desde Administracion Global")
                         st.success("Registro actualizado.")
                         st.rerun()
                 if st.button("Cancelar ediciÃ³n", key="admin_cancel_edit"):
@@ -811,7 +830,7 @@ def main():
             new_password = st.text_input("Contrasena", type="password")
             new_role = st.selectbox("Rol", options=sorted(ASSIGNABLE_ROLES), index=0)
             if st.form_submit_button("Crear usuario"):
-                ok, msg = create_user(new_username, new_password, new_role)
+                ok, msg = create_user(new_username, new_password, new_role, actor_username=current_user)
                 if ok:
                     st.success(msg)
                     st.rerun()
@@ -826,7 +845,7 @@ def main():
                 user_reset = st.selectbox("Usuario", options=usernames, key="user_reset_select")
                 new_pass = st.text_input("Nueva contrasena", type="password")
                 if st.form_submit_button("Resetear"):
-                    ok, msg = reset_password(user_reset, new_pass)
+                    ok, msg = reset_password(user_reset, new_pass, actor_username=current_user)
                     st.success(msg) if ok else st.warning(msg)
 
             st.subheader("Estado y eliminacion")
@@ -838,17 +857,59 @@ def main():
                         st.warning("No puede aplicar esta accion sobre su usuario actual.")
                     else:
                         if accion == "Desactivar":
-                            ok, msg = set_user_active(target_user, False)
+                            ok, msg = set_user_active(target_user, False, actor_username=current_user)
                         elif accion == "Activar":
-                            ok, msg = set_user_active(target_user, True)
+                            ok, msg = set_user_active(target_user, True, actor_username=current_user)
                         else:
-                            ok, msg = delete_user(target_user)
+                            ok, msg = delete_user(target_user, actor_username=current_user)
                         if ok:
                             st.success(msg)
                             st.rerun()
                         else:
                             st.warning(msg)
     # ---------- PÃ¡gina: Panel de Control (DueÃ±o) ----------
+    # ---------- Pagina: Audit Logs ----------
+    elif pagina == "Audit Logs":
+        if current_role not in ADMIN_ROLES:
+            st.error("No tiene permisos para esta seccion.")
+            st.stop()
+
+        st.markdown('<p class="sub-header">Audit Logs</p>', unsafe_allow_html=True)
+
+        all_logs = get_audit_logs()
+        if all_logs.empty:
+            st.info("No hay eventos registrados.")
+        else:
+            usuarios = ["Todos"] + sorted(all_logs["username"].dropna().astype(str).unique().tolist())
+            modulos = ["Todos"] + sorted(all_logs["module"].dropna().astype(str).unique().tolist())
+            acciones = ["Todos"] + sorted(all_logs["action_type"].dropna().astype(str).unique().tolist())
+
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                f_user = st.selectbox("Usuario", options=usuarios)
+            with f2:
+                f_module = st.selectbox("Modulo", options=modulos)
+            with f3:
+                f_action = st.selectbox("Accion", options=acciones)
+
+            d1, d2 = st.columns(2)
+            with d1:
+                f_from = st.date_input("Desde", value=date.today() - timedelta(days=30), key="audit_from")
+            with d2:
+                f_to = st.date_input("Hasta", value=date.today(), key="audit_to")
+
+            logs = get_audit_logs(
+                username=None if f_user == "Todos" else f_user,
+                module=None if f_module == "Todos" else f_module,
+                action_type=None if f_action == "Todos" else f_action,
+                date_from=f_from,
+                date_to=f_to,
+            )
+
+            if logs.empty:
+                st.info("No hay eventos para el filtro seleccionado.")
+            else:
+                st.dataframe(logs, use_container_width=True, hide_index=True)
     # ---------- Pagina: Backups y Restore ----------
     elif pagina == "Backups y Restore":
         if current_role not in ADMIN_ROLES:
@@ -859,7 +920,7 @@ def main():
 
         if st.button("Crear backup de base de datos", type="primary"):
             try:
-                backup_path = create_db_backup()
+                backup_path = create_db_backup(username=current_user)
                 st.success(f"Backup creado: {backup_path.name}")
                 st.rerun()
             except Exception as exc:
@@ -881,7 +942,7 @@ def main():
                 if not confirm_restore:
                     st.warning("Debe confirmar la restauracion antes de continuar.")
                 else:
-                    ok, msg = restore_db_backup(selected_backup)
+                    ok, msg = restore_db_backup(selected_backup, username=current_user)
                     if ok:
                         st.success(msg)
                         st.rerun()
@@ -973,6 +1034,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
 
 
 

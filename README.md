@@ -125,3 +125,23 @@ Features:
 Notes:
 - restore replaces the current `coronados.db`
 - backups are regular `.db` file copies
+
+## Audit Logs (Owner/Admin)
+The app now stores audit events in SQLite table `audit_logs` with:
+- `timestamp`
+- `username`
+- `action_type`
+- `module`
+- `details`
+
+Admin/owner users can view logs in `Audit Logs` page and filter by:
+- user
+- module
+- action
+- date range
+
+Logged actions include:
+- login success / failed login
+- create/edit/delete for cierres, gastos, sueldos, pedidosya, transferencias
+- user creation, password reset, deactivate/reactivate/delete
+- backup creation and backup restore

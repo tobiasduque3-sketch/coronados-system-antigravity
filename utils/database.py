@@ -96,6 +96,19 @@ def ensure_database() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                username TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                module TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+
 
 def table_is_empty(table_name: str) -> bool:
     ensure_database()

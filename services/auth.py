@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from services.audit import log_event
 from utils.database import ensure_database, get_connection
 
 ROLE_ADMIN_OWNER = "admin/owner"
@@ -64,6 +65,7 @@ def ensure_default_users() -> bool:
                 "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                 (username, _hash_password(password), role),
             )
+    log_event("system", "create_default_users", "usuarios", "Usuarios iniciales creados")
     return True
 
 
@@ -106,7 +108,7 @@ def list_users() -> pd.DataFrame:
     return df
 
 
-def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
+def create_user(username: str, password: str, role: str, actor_username: str | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not username:
         return False, "Usuario requerido."
@@ -124,10 +126,12 @@ def create_user(username: str, password: str, role: str) -> tuple[bool, str]:
             "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
             (username, _hash_password(password), role),
         )
+
+    log_event(actor_username, "create", "usuarios", f"Usuario creado: {username} ({role})")
     return True, "Usuario creado."
 
 
-def reset_password(username: str, new_password: str) -> tuple[bool, str]:
+def reset_password(username: str, new_password: str, actor_username: str | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not username:
         return False, "Usuario requerido."
@@ -143,10 +147,12 @@ def reset_password(username: str, new_password: str) -> tuple[bool, str]:
             "UPDATE users SET password_hash = ? WHERE username = ?",
             (_hash_password(new_password), username),
         )
+
+    log_event(actor_username, "password_reset", "usuarios", f"Password reseteada: {username}")
     return True, "Contrasena actualizada."
 
 
-def set_user_active(username: str, is_active: bool) -> tuple[bool, str]:
+def set_user_active(username: str, is_active: bool, actor_username: str | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not username:
         return False, "Usuario requerido."
@@ -160,10 +166,13 @@ def set_user_active(username: str, is_active: bool) -> tuple[bool, str]:
             "UPDATE users SET is_active = ? WHERE username = ?",
             (1 if is_active else 0, username),
         )
+
+    action = "reactivate" if is_active else "deactivate"
+    log_event(actor_username, action, "usuarios", f"Usuario: {username}")
     return True, "Estado de usuario actualizado."
 
 
-def delete_user(username: str) -> tuple[bool, str]:
+def delete_user(username: str, actor_username: str | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not username:
         return False, "Usuario requerido."
@@ -174,4 +183,6 @@ def delete_user(username: str) -> tuple[bool, str]:
         if not exists:
             return False, "Usuario no encontrado."
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
+
+    log_event(actor_username, "delete", "usuarios", f"Usuario eliminado: {username}")
     return True, "Usuario eliminado."
