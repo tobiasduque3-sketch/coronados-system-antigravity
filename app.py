@@ -197,7 +197,7 @@ def main():
         with st.sidebar:
             if not df_c.empty:
                 with st.expander("Ãšltimos cierres"):
-                    st.dataframe(df_c.tail(10)[["fecha", "turno", "total_turno"]], use_container_width=True, hide_index=True)
+                    st.dataframe(df_c.tail(10)[["fecha", "turno", "total_turno"]], use_container_width=True)
 
         st.subheader("ðŸ“ Nuevo cierre de caja")
         with st.form("form_cierre", clear_on_submit=True):
@@ -682,7 +682,7 @@ def main():
         if df_py.empty:
             st.info("No hay registros de Pedidos Ya.")
         else:
-            st.dataframe(df_py.sort_values("fecha", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(df_py.sort_values("fecha", ascending=False), use_container_width=True)
             st.metric("Total Pedidos Ya", f"$ {df_py['monto'].sum():,.2f}")
 
     # ---------- PÃ¡gina: Transferencias Alias ----------
@@ -715,7 +715,7 @@ def main():
         if df_tr.empty:
             st.info("No hay transferencias registradas.")
         else:
-            st.dataframe(df_tr.sort_values("fecha", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(df_tr.sort_values("fecha", ascending=False), use_container_width=True)
             st.metric("Total transferencias", f"$ {df_tr['monto'].sum():,.2f}")
 
     # ---------- PÃ¡gina: AdministraciÃ³n Global ----------
@@ -855,7 +855,7 @@ def main():
         else:
             df_show = df_users.copy()
             df_show["activo"] = df_show["is_active"].apply(lambda x: "Si" if int(x) == 1 else "No")
-            st.dataframe(df_show[["username", "role", "activo", "created_at"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_show[["username", "role", "activo", "created_at"]], use_container_width=True)
 
         st.subheader("Crear usuario")
         with st.form("form_create_user"):
@@ -949,7 +949,7 @@ def main():
             if logs.empty:
                 st.info("No hay eventos para el filtro seleccionado.")
             else:
-                st.dataframe(logs, use_container_width=True, hide_index=True)
+                st.dataframe(logs, use_container_width=True)
     # ---------- Pagina: Backups y Restore ----------
     elif pagina == "Backups y Restore":
         if current_role not in ADMIN_ROLES:
@@ -1074,6 +1074,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
