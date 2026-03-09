@@ -10,8 +10,6 @@ import streamlit as st
 
 if not hasattr(st, "rerun"):
     st.rerun = st.experimental_rerun
-if not hasattr(st, "divider"):
-    st.divider = lambda: st.markdown("---")
 
 from services.auth import (
     ROLE_ADMIN_OWNER,
@@ -178,7 +176,7 @@ def main():
             allowed_pages,
             label_visibility="collapsed",
         )
-        st.divider()
+        st.markdown("---")
         # Resumen rapido en sidebar
         df_c = cargar_cierres()
         df_g = cargar_gastos()
@@ -336,7 +334,7 @@ def main():
             if st.button("Cancelar ediciÃ³n"):
                 del st.session_state["editing_cierre_idx"]
                 st.rerun()
-            st.divider()
+            st.markdown("---")
 
         # Tabla de cierres (mÃ¡s recientes arriba)
         st.subheader("Cierres guardados")
@@ -497,7 +495,7 @@ def main():
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_gasto"):
                 del st.session_state["editing_gasto_idx"]
                 st.rerun()
-            st.divider()
+            st.markdown("---")
 
         if df_g.empty:
             st.info("AÃºn no hay gastos registrados.")
@@ -625,7 +623,7 @@ def main():
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_sueldo"):
                 del st.session_state["editing_sueldo_idx"]
                 st.rerun()
-            st.divider()
+            st.markdown("---")
 
         if df_s.empty:
             st.info("AÃºn no hay pagos de sueldos registrados.")
@@ -824,7 +822,7 @@ def main():
                 if st.button("Cancelar ediciÃ³n", key="admin_cancel_edit"):
                     del st.session_state["admin_edit_key"]
                     st.rerun()
-                st.divider()
+                st.markdown("---")
 
         if _df.empty:
             st.info(f"No hay registros en {tabla_admin}.")
@@ -1050,7 +1048,7 @@ def main():
         with k4:
             st.metric("Ganancia real neta", f"$ {ganancia_neta:,.2f}", delta=f"{periodo}")
 
-        st.divider()
+        st.markdown("---")
         st.subheader("Descargar reporte para contador")
         excel_bytes = generar_reporte_excel()
         st.download_button(
@@ -1063,7 +1061,7 @@ def main():
 
     # BotÃ³n de export en sidebar para todas las pÃ¡ginas
     with st.sidebar:
-        st.divider()
+        st.markdown("---")
         excel_bytes = generar_reporte_excel()
         st.download_button(
             "Descargar Reporte para Contador",
@@ -1076,6 +1074,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
