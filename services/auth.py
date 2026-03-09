@@ -14,8 +14,10 @@ ROLE_ADMIN = "admin"
 ROLE_OWNER = "owner"
 ROLE_MANAGER = "manager"
 ROLE_CAJA = "caja"
+
 VALID_ROLES = {ROLE_ADMIN_OWNER, ROLE_ADMIN, ROLE_OWNER, ROLE_MANAGER, ROLE_CAJA}
 ASSIGNABLE_ROLES = {ROLE_ADMIN_OWNER, ROLE_MANAGER, ROLE_CAJA}
+ADMIN_ROLES = {ROLE_ADMIN_OWNER, ROLE_ADMIN, ROLE_OWNER}
 
 
 def _hash_password(password: str, salt: str | None = None) -> str:
@@ -44,6 +46,12 @@ def _verify_password(password: str, stored_hash: str) -> bool:
         return secrets.compare_digest(check, digest)
     except Exception:
         return False
+
+
+def _count_active_admin_users(conn) -> int:
+    placeholders = ",".join(["?"] * len(ADMIN_ROLES))
+    sql = f"SELECT COUNT(*) FROM users WHERE is_active = 1 AND role IN ({placeholders})"
+    return int(conn.execute(sql, tuple(ADMIN_ROLES)).fetchone()[0])
 
 
 def ensure_default_users() -> bool:
@@ -118,14 +126,17 @@ def create_user(username: str, password: str, role: str, actor_username: str | N
         return False, "Rol invalido."
 
     ensure_database()
-    with get_connection() as conn:
-        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-        if exists:
-            return False, "El usuario ya existe."
-        conn.execute(
-            "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
-            (username, _hash_password(password), role),
-        )
+    try:
+        with get_connection() as conn:
+            exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+            if exists:
+                return False, "El usuario ya existe."
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
+                (username, _hash_password(password), role),
+            )
+    except Exception as exc:
+        return False, f"No se pudo crear el usuario: {exc}"
 
     log_event(actor_username, "create", "usuarios", f"Usuario creado: {username} ({role})")
     return True, "Usuario creado."
@@ -139,14 +150,17 @@ def reset_password(username: str, new_password: str, actor_username: str | None 
         return False, "Contrasena minima: 4 caracteres."
 
     ensure_database()
-    with get_connection() as conn:
-        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-        if not exists:
-            return False, "Usuario no encontrado."
-        conn.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (_hash_password(new_password), username),
-        )
+    try:
+        with get_connection() as conn:
+            exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+            if not exists:
+                return False, "Usuario no encontrado."
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (_hash_password(new_password), username),
+            )
+    except Exception as exc:
+        return False, f"No se pudo actualizar la contrasena: {exc}"
 
     log_event(actor_username, "password_reset", "usuarios", f"Password reseteada: {username}")
     return True, "Contrasena actualizada."
@@ -158,14 +172,27 @@ def set_user_active(username: str, is_active: bool, actor_username: str | None =
         return False, "Usuario requerido."
 
     ensure_database()
-    with get_connection() as conn:
-        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-        if not exists:
-            return False, "Usuario no encontrado."
-        conn.execute(
-            "UPDATE users SET is_active = ? WHERE username = ?",
-            (1 if is_active else 0, username),
-        )
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT role, is_active FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+            if not row:
+                return False, "Usuario no encontrado."
+
+            target_role = str(row[0])
+            target_active = int(row[1]) == 1
+            if not is_active and target_active and target_role in ADMIN_ROLES:
+                if _count_active_admin_users(conn) <= 1:
+                    return False, "No puede desactivar el ultimo usuario admin/owner activo."
+
+            conn.execute(
+                "UPDATE users SET is_active = ? WHERE username = ?",
+                (1 if is_active else 0, username),
+            )
+    except Exception as exc:
+        return False, f"No se pudo actualizar el estado del usuario: {exc}"
 
     action = "reactivate" if is_active else "deactivate"
     log_event(actor_username, action, "usuarios", f"Usuario: {username}")
@@ -178,11 +205,19 @@ def delete_user(username: str, actor_username: str | None = None) -> tuple[bool,
         return False, "Usuario requerido."
 
     ensure_database()
-    with get_connection() as conn:
-        exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-        if not exists:
-            return False, "Usuario no encontrado."
-        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    try:
+        with get_connection() as conn:
+            row = conn.execute("SELECT role FROM users WHERE username = ?", (username,)).fetchone()
+            if not row:
+                return False, "Usuario no encontrado."
+
+            target_role = str(row[0])
+            if target_role in ADMIN_ROLES and _count_active_admin_users(conn) <= 1:
+                return False, "No puede eliminar el ultimo usuario admin/owner activo."
+
+            conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    except Exception as exc:
+        return False, f"No se pudo eliminar el usuario: {exc}"
 
     log_event(actor_username, "delete", "usuarios", f"Usuario eliminado: {username}")
     return True, "Usuario eliminado."

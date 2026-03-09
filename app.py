@@ -97,6 +97,23 @@ def _allowed_pages_for_role(role: str) -> list[str]:
     return ROLE_PAGES.get(role, [])
 
 
+def _module_for_admin_table(tabla_admin: str) -> str:
+    mapping = {
+        "Sueldos": "sueldos",
+        "Gastos": "gastos",
+        "Pedidos Ya": "pedidosya",
+        "Transferencias": "transferencias",
+    }
+    return mapping.get(tabla_admin, "admin")
+
+
+def _require_positive_amount(value: float, field_name: str = "Monto") -> bool:
+    if value <= 0:
+        st.warning(f"{field_name} debe ser mayor a 0.")
+        return False
+    return True
+
+
 def _render_login_screen() -> None:
     st.markdown(f'<p class="main-header">🍽️ {NOMBRE_RESTAURANTE}</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Iniciar sesion</p>', unsafe_allow_html=True)
@@ -456,17 +473,22 @@ def main():
                     )
                 if st.form_submit_button("Guardar cambios"):
                     nombre_final = (prov_otro_edit or "").strip() if prov_edit == "Otro" else prov_edit
-                    df_g.loc[editing_gasto_idx] = {
-                        "fecha": eg0.strftime("%Y-%m-%d"),
-                        "proveedor": nombre_final or "Sin nombre",
-                        "monto": monto_edit,
-                        "categoria": cat_edit,
-                    }
-                    guardar_gastos(df_g)
-                    del st.session_state["editing_gasto_idx"]
-                    log_event(current_user, "edit", "gastos", "Gasto actualizado")
-                    st.success("Gasto actualizado correctamente.")
-                    st.rerun()
+                    if prov_edit == "Otro" and not nombre_final:
+                        st.warning("Escriba el nombre del proveedor.")
+                    elif not _require_positive_amount(monto_edit, "Monto"):
+                        pass
+                    else:
+                        df_g.loc[editing_gasto_idx] = {
+                            "fecha": eg0.strftime("%Y-%m-%d"),
+                            "proveedor": nombre_final or "Sin nombre",
+                            "monto": monto_edit,
+                            "categoria": cat_edit,
+                        }
+                        guardar_gastos(df_g)
+                        del st.session_state["editing_gasto_idx"]
+                        log_event(current_user, "edit", "gastos", "Gasto actualizado")
+                        st.success("Gasto actualizado correctamente.")
+                        st.rerun()
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_gasto"):
                 del st.session_state["editing_gasto_idx"]
                 st.rerun()
@@ -582,16 +604,19 @@ def main():
                     monto_s_val = 0.0
                 monto_s_edit = st.number_input("Monto ($)", min_value=0.0, value=monto_s_val, step=100.0, format="%.2f", key="edit_monto_sueldo")
                 if st.form_submit_button("Guardar cambios"):
-                    df_s.loc[editing_sueldo_idx] = {
-                        "fecha": fecha_s_edit.strftime("%Y-%m-%d"),
-                        "empleado": empleado_s_edit,
-                        "monto": monto_s_edit,
-                    }
-                    guardar_sueldos(df_s)
-                    del st.session_state["editing_sueldo_idx"]
-                    log_event(current_user, "edit", "sueldos", "Pago de sueldo actualizado")
-                    st.success("Pago actualizado correctamente.")
-                    st.rerun()
+                    if not _require_positive_amount(monto_s_edit, "Monto"):
+                        pass
+                    else:
+                        df_s.loc[editing_sueldo_idx] = {
+                            "fecha": fecha_s_edit.strftime("%Y-%m-%d"),
+                            "empleado": empleado_s_edit,
+                            "monto": monto_s_edit,
+                        }
+                        guardar_sueldos(df_s)
+                        del st.session_state["editing_sueldo_idx"]
+                        log_event(current_user, "edit", "sueldos", "Pago de sueldo actualizado")
+                        st.success("Pago actualizado correctamente.")
+                        st.rerun()
             if st.button("Cancelar ediciÃ³n", key="cancel_edit_sueldo"):
                 del st.session_state["editing_sueldo_idx"]
                 st.rerun()
@@ -637,17 +662,18 @@ def main():
                 metodo_py = st.selectbox("MÃ©todo de pago", options=METODOS_PAGO, key="py_metodo")
                 comentarios_py = st.text_area("Comentarios", key="py_comentarios", height=80)
             if st.form_submit_button("Guardar"):
-                df_py = cargar_pedidosya()
-                df_py = pd.concat([df_py, pd.DataFrame([{
-                    "fecha": fecha_py.strftime("%Y-%m-%d"),
-                    "monto": monto_py,
-                    "metodo_pago": metodo_py,
-                    "comentarios": (comentarios_py or "").strip(),
-                }])], ignore_index=True)
-                guardar_pedidosya(df_py)
-                log_event(current_user, "create", "pedidosya", "Registro creado")
-                st.success("Registro guardado en pedidosya.csv")
-                st.rerun()
+                if _require_positive_amount(monto_py, "Monto"):
+                    df_py = cargar_pedidosya()
+                    df_py = pd.concat([df_py, pd.DataFrame([{
+                        "fecha": fecha_py.strftime("%Y-%m-%d"),
+                        "monto": monto_py,
+                        "metodo_pago": metodo_py,
+                        "comentarios": (comentarios_py or "").strip(),
+                    }])], ignore_index=True)
+                    guardar_pedidosya(df_py)
+                    log_event(current_user, "create", "pedidosya", "Registro creado")
+                    st.success("Registro guardado en pedidosya.csv")
+                    st.rerun()
         st.subheader("Registros Pedidos Ya")
         df_py = cargar_pedidosya()
         if df_py.empty:
@@ -669,17 +695,18 @@ def main():
                 monto_tr = st.number_input("Monto ($)", min_value=0.0, value=0.0, step=50.0, format="%.2f", key="tr_monto")
                 comentario_tr = st.text_area("Comentario", key="tr_comentario", height=80)
             if st.form_submit_button("Guardar"):
-                df_tr = cargar_transferencias()
-                df_tr = pd.concat([df_tr, pd.DataFrame([{
-                    "fecha": fecha_tr.strftime("%Y-%m-%d"),
-                    "alias_app": (alias_tr or "").strip(),
-                    "monto": monto_tr,
-                    "comentario": (comentario_tr or "").strip(),
-                }])], ignore_index=True)
-                guardar_transferencias(df_tr)
-                log_event(current_user, "create", "transferencias", "Registro creado")
-                st.success("Registro guardado en transferencias.csv")
-                st.rerun()
+                if _require_positive_amount(monto_tr, "Monto"):
+                    df_tr = cargar_transferencias()
+                    df_tr = pd.concat([df_tr, pd.DataFrame([{
+                        "fecha": fecha_tr.strftime("%Y-%m-%d"),
+                        "alias_app": (alias_tr or "").strip(),
+                        "monto": monto_tr,
+                        "comentario": (comentario_tr or "").strip(),
+                    }])], ignore_index=True)
+                    guardar_transferencias(df_tr)
+                    log_event(current_user, "create", "transferencias", "Registro creado")
+                    st.success("Registro guardado en transferencias.csv")
+                    st.rerun()
         st.subheader("Transferencias registradas")
         df_tr = cargar_transferencias()
         if df_tr.empty:
@@ -773,19 +800,22 @@ def main():
                         mo = st.number_input("Monto ($)", min_value=0.0, value=max(0.0, float(_fila["monto"])) if pd.notna(_fila["monto"]) else 0.0, step=50.0, format="%.2f", key="ae_monto_tr")
                         co = st.text_area("Comentario", value=str(_fila.get("comentario", "")), key="ae_com_tr")
                     if st.form_submit_button("Guardar cambios"):
-                        if tabla_admin == "Sueldos":
-                            d = cargar_sueldos(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "empleado": em, "monto": mo}; guardar_sueldos(d)
-                        elif tabla_admin == "Gastos":
-                            d = cargar_gastos(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "proveedor": pr, "monto": mo, "categoria": ca}; guardar_gastos(d)
-                        elif tabla_admin == "Pedidos Ya":
-                            d = cargar_pedidosya(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "monto": mo, "metodo_pago": me, "comentarios": co or ""}; guardar_pedidosya(d)
+                        if not _require_positive_amount(mo, "Monto"):
+                            pass
                         else:
-                            d = cargar_transferencias(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "alias_app": al or "", "monto": mo, "comentario": co or ""}; guardar_transferencias(d)
-                        del st.session_state["admin_edit_key"]
-                        mod = {"Sueldos": "sueldos", "Gastos": "gastos", "Pedidos Ya": "pedidosya", "Transferencias": "transferencias"}.get(tabla_admin, "admin")
-                        log_event(current_user, "edit", mod, "Registro actualizado desde Administracion Global")
-                        st.success("Registro actualizado.")
-                        st.rerun()
+                            if tabla_admin == "Sueldos":
+                                d = cargar_sueldos(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "empleado": em, "monto": mo}; guardar_sueldos(d)
+                            elif tabla_admin == "Gastos":
+                                d = cargar_gastos(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "proveedor": pr, "monto": mo, "categoria": ca}; guardar_gastos(d)
+                            elif tabla_admin == "Pedidos Ya":
+                                d = cargar_pedidosya(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "monto": mo, "metodo_pago": me, "comentarios": co or ""}; guardar_pedidosya(d)
+                            else:
+                                d = cargar_transferencias(); d.loc[_idx] = {"fecha": fe.strftime("%Y-%m-%d"), "alias_app": al or "", "monto": mo, "comentario": co or ""}; guardar_transferencias(d)
+                            del st.session_state["admin_edit_key"]
+                            mod = _module_for_admin_table(tabla_admin)
+                            log_event(current_user, "edit", mod, "Registro actualizado desde Administracion Global")
+                            st.success("Registro actualizado.")
+                            st.rerun()
                 if st.button("Cancelar ediciÃ³n", key="admin_cancel_edit"):
                     del st.session_state["admin_edit_key"]
                     st.rerun()
@@ -852,9 +882,12 @@ def main():
             with st.form("form_user_status"):
                 target_user = st.selectbox("Usuario objetivo", options=usernames, key="target_user_select")
                 accion = st.selectbox("Accion", options=["Desactivar", "Activar", "Eliminar"], index=0)
+                confirm_delete_user = st.checkbox("Confirmar eliminacion permanente", value=False)
                 if st.form_submit_button("Aplicar accion"):
                     if target_user == current_user:
                         st.warning("No puede aplicar esta accion sobre su usuario actual.")
+                    elif accion == "Eliminar" and not confirm_delete_user:
+                        st.warning("Debe confirmar la eliminacion permanente para continuar.")
                     else:
                         if accion == "Desactivar":
                             ok, msg = set_user_active(target_user, False, actor_username=current_user)
@@ -898,13 +931,17 @@ def main():
             with d2:
                 f_to = st.date_input("Hasta", value=date.today(), key="audit_to")
 
-            logs = get_audit_logs(
-                username=None if f_user == "Todos" else f_user,
-                module=None if f_module == "Todos" else f_module,
-                action_type=None if f_action == "Todos" else f_action,
-                date_from=f_from,
-                date_to=f_to,
-            )
+            if f_from > f_to:
+                st.warning("La fecha Desde no puede ser mayor que Hasta.")
+                logs = pd.DataFrame()
+            else:
+                logs = get_audit_logs(
+                    username=None if f_user == "Todos" else f_user,
+                    module=None if f_module == "Todos" else f_module,
+                    action_type=None if f_action == "Todos" else f_action,
+                    date_from=f_from,
+                    date_to=f_to,
+                )
 
             if logs.empty:
                 st.info("No hay eventos para el filtro seleccionado.")
