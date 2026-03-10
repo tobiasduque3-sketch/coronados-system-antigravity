@@ -149,28 +149,74 @@ def _render_login_screen() -> None:
 
 def _render_inicio(role: str, user: str) -> None:
     _render_title("Inicio", "Resumen del dia y accesos rapidos")
-    cierres_hoy = _today_df(cargar_cierres())
-    gastos_hoy = _today_df(cargar_gastos())
-    sueldos_hoy = _today_df(cargar_sueldos())
-    ventas = ingresos_cierres(cierres_hoy)
-    gastos = _sum_column(gastos_hoy, "monto")
-    neto = ventas - gastos - _sum_column(sueldos_hoy, "monto")
-    caja_esperada = _sum_column(cierres_hoy, "efectivo_neto")
+    
+    # Date Filtering
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        date_filter = st.selectbox(
+            "Filtrar por",
+            ["Hoy", "Esta Semana", "Este Mes", "Todo el historial"],
+            index=0,
+        )
+    
+    df_cierres = cargar_cierres()
+    df_gastos = cargar_gastos()
+    df_sueldos = cargar_sueldos()
 
+    from services.business import filtrar_por_semana, filtrar_por_mes
+    import pandas as pd
+    
+    if date_filter == "Hoy":
+        cierres_filtered = _today_df(df_cierres)
+        gastos_filtered = _today_df(df_gastos)
+        sueldos_filtered = _today_df(df_sueldos)
+    elif date_filter == "Esta Semana":
+        cierres_filtered = filtrar_por_semana(df_cierres, "fecha")
+        gastos_filtered = filtrar_por_semana(df_gastos, "fecha")
+        sueldos_filtered = filtrar_por_semana(df_sueldos, "fecha")
+    elif date_filter == "Este Mes":
+        cierres_filtered = filtrar_por_mes(df_cierres, "fecha")
+        gastos_filtered = filtrar_por_mes(df_gastos, "fecha")
+        sueldos_filtered = filtrar_por_mes(df_sueldos, "fecha")
+    else:
+        cierres_filtered = df_cierres
+        gastos_filtered = df_gastos
+        sueldos_filtered = df_sueldos
+
+    ventas = ingresos_cierres(cierres_filtered)
+    gastos = _sum_column(gastos_filtered, "monto")
+    sueldos = _sum_column(sueldos_filtered, "monto")
+    neto = ventas - gastos - sueldos
+    caja_esperada = _sum_column(cierres_filtered, "efectivo_neto")
+
+    # Metrics
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Ventas de hoy", _currency(ventas))
-    m2.metric("Gastos de hoy", _currency(gastos))
-    m3.metric("Neto de hoy", _currency(neto))
-    m4.metric("Caja esperada", _currency(caja_esperada))
+    m1.metric(f"Ventas ({date_filter})", _currency(ventas))
+    m2.metric(f"Gastos ({date_filter})", _currency(gastos))
+    m3.metric(f"Neto ({date_filter})", _currency(neto))
+    m4.metric(f"Caja esperada ({date_filter})", _currency(caja_esperada))
 
     st.markdown("---")
-    c1, c2 = st.columns([1.4, 1])
+    
+    # Charts and Alerts
+    c1, c2 = st.columns([1.5, 1])
     with c1:
+        st.subheader("Visualizacion")
+        chart_data = pd.DataFrame(
+            {
+                "Categoria": ["Ventas", "Gastos", "Sueldos", "Neto"],
+                "Monto": [ventas, gastos, sueldos, neto],
+            }
+        )
+        st.bar_chart(chart_data, x="Categoria", y="Monto", use_container_width=True)
+
+    with c2:
         st.subheader("Alertas")
         alertas = []
+        cierres_hoy = _today_df(df_cierres)
         if cierres_hoy.empty:
             alertas.append("Todavia no hay cierres cargados hoy.")
-        if _can_manage_gastos(role) and gastos_hoy.empty:
+        if _can_manage_gastos(role) and _today_df(df_gastos).empty:
             alertas.append("No hay gastos registrados hoy.")
         if not cierres_hoy.empty and "valor_z" in cierres_hoy.columns:
             invalido = pd.to_numeric(cierres_hoy["valor_z"], errors="coerce").fillna(0) <= 0
@@ -181,14 +227,7 @@ def _render_inicio(role: str, user: str) -> None:
                 st.warning(alerta)
         else:
             st.success("Sin alertas importantes.")
-        st.subheader("Resumen rapido")
-        resumen = pd.DataFrame([
-            {"Concepto": "Ventas", "Monto": ventas},
-            {"Concepto": "Gastos", "Monto": gastos},
-            {"Concepto": "Caja esperada", "Monto": caja_esperada},
-        ])
-        st.dataframe(resumen, use_container_width=True)
-    with c2:
+            
         st.subheader("Acciones rapidas")
         if st.button("Abrir operacion diaria", use_container_width=True):
             _go_to(PAGINA_OPERACION)
@@ -200,8 +239,7 @@ def _render_inicio(role: str, user: str) -> None:
         if _is_admin(role):
             if st.button("Abrir administracion", use_container_width=True):
                 _go_to(PAGINA_ADMIN)
-        st.info(f"Usuario: {user}")
-        st.info(f"Rol: {role}")
+        st.info(f"Usuario: {user} | Rol: {role}")
 
 
 def _render_form_cierre(current_user: str) -> None:
@@ -314,17 +352,24 @@ def _render_form_otros_ingresos(current_user: str) -> None:
 
 def _render_operacion_diaria(role: str, current_user: str) -> None:
     _render_title("Operacion diaria", "Las tareas mas usadas del dia")
-    opciones = ["Cierre de caja", "Otros ingresos"]
+    
+    tab_names = ["Cierre de caja", "Otros ingresos"]
     if _can_manage_gastos(role):
-        opciones.insert(1, "Gastos")
-    seccion = st.radio("Seccion", options=opciones, horizontal=True)
-    st.markdown("---")
-    if seccion == "Cierre de caja":
+        tab_names.insert(1, "Gastos")
+        
+    tabs = st.tabs(tab_names)
+    
+    with tabs[0]:
         _render_form_cierre(current_user)
-    elif seccion == "Gastos":
-        _render_form_gasto(current_user)
+        
+    if _can_manage_gastos(role):
+        with tabs[1]:
+            _render_form_gasto(current_user)
+        with tabs[2]:
+            _render_form_otros_ingresos(current_user)
     else:
-        _render_form_otros_ingresos(current_user)
+        with tabs[1]:
+            _render_form_otros_ingresos(current_user)
 
 def _render_historial_cierres(editable: bool, current_user: str) -> None:
     df_c = cargar_cierres()
@@ -500,17 +545,24 @@ def _render_historial_otros(editable: bool, current_user: str) -> None:
 def _render_historial(role: str, current_user: str) -> None:
     _render_title("Historial", "Revision de registros y correcciones")
     editable = _can_edit_history(role)
-    opciones = ["Cierres", "Otros ingresos"]
+    
+    tab_names = ["Cierres", "Otros ingresos"]
     if _can_manage_gastos(role):
-        opciones.insert(1, "Gastos")
-    seccion = st.radio("Tipo de historial", options=opciones, horizontal=True)
-    st.markdown("---")
-    if seccion == "Cierres":
+        tab_names.insert(1, "Gastos")
+        
+    tabs = st.tabs(tab_names)
+    
+    with tabs[0]:
         _render_historial_cierres(editable, current_user)
-    elif seccion == "Gastos":
-        _render_historial_gastos(editable, current_user)
+        
+    if _can_manage_gastos(role):
+        with tabs[1]:
+            _render_historial_gastos(editable, current_user)
+        with tabs[2]:
+            _render_historial_otros(editable, current_user)
     else:
-        _render_historial_otros(editable, current_user)
+        with tabs[1]:
+            _render_historial_otros(editable, current_user)
 
 
 def _render_personal(current_user: str) -> None:
