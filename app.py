@@ -806,20 +806,26 @@ def main() -> None:
             st.session_state["nav_page"] = PAGINA_INICIO
             st.rerun()
         st.markdown("---")
-        pagina = st.radio("Ir a", options=allowed_pages, key="nav_page")
+        
+        # Use a separate key to avoid Streamlit session state bound variable exceptions
+        selected_page_index = allowed_pages.index(st.session_state["nav_page"]) if st.session_state["nav_page"] in allowed_pages else 0
+        pagina = st.radio("Ir a", options=allowed_pages, index=selected_page_index, key="nav_radio")
+        if pagina != st.session_state["nav_page"]:
+            st.session_state["nav_page"] = pagina
+            st.rerun()
 
-    if pagina == PAGINA_INICIO:
+    if st.session_state["nav_page"] == PAGINA_INICIO:
         _render_inicio(current_role, current_user)
-    elif pagina == PAGINA_OPERACION:
+    elif st.session_state["nav_page"] == PAGINA_OPERACION:
         _render_operacion_diaria(current_role, current_user)
-    elif pagina == PAGINA_HISTORIAL:
+    elif st.session_state["nav_page"] == PAGINA_HISTORIAL:
         _render_historial(current_role, current_user)
-    elif pagina == PAGINA_PERSONAL:
+    elif st.session_state["nav_page"] == PAGINA_PERSONAL:
         if not _can_manage_personal(current_role):
             st.error("No tiene permisos para esta seccion.")
             st.stop()
         _render_personal(current_user)
-    elif pagina == PAGINA_ADMIN:
+    elif st.session_state["nav_page"] == PAGINA_ADMIN:
         _render_administracion(current_user, current_role)
 
     with st.sidebar:
